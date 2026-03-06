@@ -1,390 +1,297 @@
 /**
  * Austin Tree Experts Quote Form
- * Handles multi-step form flow and API integration
+ * Single-page form with duplicate detection interstitial
  */
 
 (function($) {
 	'use strict';
 
-	const ATE = {
-		currentStep: 1,
-		formData: {
-			address: null,
-			zip: null,
-			matches: [],
-			selectedClient: null,
-			selectedAddress: null,
-			fname: null,
-			lname: null,
-			company: null,
-			contactInfo: {},
-			services: [],
-			notes: null
-		},
+	var ATE = {
+		formData: null,
+		selectedMatch: null,
 
-		/**
-		 * Initialize the form
-		 */
 		init: function() {
-			this.cacheDOM();
 			this.bindEvents();
 		},
 
-		/**
-		 * Cache DOM elements
-		 */
-		cacheDOM: function() {
-			this.$form = $('#ate-quote-form');
-			this.$wrapper = $('#ate-quote-form-wrapper');
-			this.$addressInput = $('#ate-address');
-			this.$zipInput = $('#ate-zip');
-			this.$lookupBtn = $('#ate-lookup-btn');
-			this.$matchResults = $('#ate-match-results');
-		},
-
-		/**
-		 * Bind events
-		 */
 		bindEvents: function() {
-			const self = this;
+			var self = this;
 
-			// Step 1: Address lookup
-			$(document).on('click', '#ate-lookup-btn', function(e) {
-				e.preventDefault();
-				self.handleAddressLookup();
-			});
-
-			// Back to address from matches
-			$(document).on('click', '#ate-back-to-address', function(e) {
-				e.preventDefault();
-				self.goToStep(1);
-			});
-
-			// No match - go to new client form
-			$(document).on('click', '#ate-no-match-btn', function(e) {
-				e.preventDefault();
-				self.goToStep(3);
-			});
-
-			// Back to address from contact info
-			$(document).on('click', '#ate-back-to-address-2', function(e) {
-				e.preventDefault();
-				self.goToStep(1);
-			});
-
-			// Continue from new client info
-			$(document).on('click', '#ate-continue-to-services', function(e) {
-				e.preventDefault();
-				if (self.validateNewClientForm()) {
-					self.goToStep(5);
-				}
-			});
-
-			// Back to matches from existing client
-			$(document).on('click', '#ate-back-to-matches', function(e) {
-				e.preventDefault();
-				self.goToStep(2);
-			});
-
-			// Continue from existing client
-			$(document).on('click', '#ate-continue-from-existing', function(e) {
-				e.preventDefault();
-				if (self.validateExistingClientForm()) {
-					self.goToStep(5);
-				}
-			});
-
-			// Back to contact from services
-			$(document).on('click', '#ate-back-to-contact', function(e) {
-				e.preventDefault();
-				if (self.formData.selectedClient) {
-					self.goToStep(4);
-				} else {
-					self.goToStep(3);
-				}
-			});
-
-			// Form submission
+			// Form submission — validate then check duplicates
 			$(document).on('submit', '#ate-quote-form', function(e) {
 				e.preventDefault();
-				self.handleFormSubmit();
+				self.handleSubmit();
 			});
 
-			// Client match selection
-			$(document).on('change', 'input[name="client_match"]', function() {
-				const matchId = $(this).val();
-				const match = self.formData.matches.find(m => m.id == matchId);
-				if (match) {
-					self.formData.selectedClient = match;
-					self.goToStep(4);
-				}
+			// Duplicate interstitial: back to form
+			$(document).on('click', '#ate-dup-back', function(e) {
+				e.preventDefault();
+				self.showStep('form');
+			});
+
+			// Duplicate interstitial: "I'm a New Customer" — create anyway
+			$(document).on('click', '#ate-dup-new-customer', function(e) {
+				e.preventDefault();
+				$(this).prop('disabled', true);
+				$('#ate-dup-submit-loading').show();
+				self.submitNewClient();
+			});
+
+			// Duplicate interstitial: select existing match — "That's me"
+			$(document).on('click', '.ate-dup-select-btn', function(e) {
+				e.preventDefault();
+				var userId = $(this).attr('data-user-id');
+				var addressId = $(this).attr('data-address-id');
+				$(this).prop('disabled', true).text('Submitting...');
+				$('#ate-dup-submit-loading').show();
+				self.submitExistingClient(userId, addressId);
 			});
 		},
 
 		/**
-		 * Handle address lookup
+		 * Main submit handler — validate, collect, check for duplicates
 		 */
-		handleAddressLookup: function() {
-			const address = this.$addressInput.val().trim();
-			const zip = this.$zipInput.val().trim();
+		handleSubmit: function() {
+			if (!this.validateForm()) return;
 
-			// Validate
-			if (!address || !zip) {
-				this.showError('ate-address-error', 'Both address and ZIP code are required.');
-				return;
-			}
+			this.collectFormData();
 
-			// Disable button and show loading
-			this.$lookupBtn.prop('disabled', true);
-			$('#ate-lookup-loading').show();
+			$('#ate-submit-btn').prop('disabled', true);
+			$('#ate-submit-loading').show();
 
-			const self = this;
+			var self = this;
+			var profileForDupCheck = {
+				fName: this.formData.fname,
+				lName: this.formData.lname,
+				email: this.formData.contactInfo.email,
+				phone: this.formData.contactInfo.phone,
+				addresses: [{
+					street: this.formData.address,
+					zip: this.formData.zip,
+					city: ''
+				}]
+			};
 
 			$.ajax({
 				url: ateQuoteForm.ajaxUrl,
 				type: 'POST',
 				data: {
-					action: 'ate_address_lookup',
-					address: address,
-					zip: zip
+					action: 'ate_check_duplicates',
+					nonce: ateQuoteForm.nonce,
+					profile: JSON.stringify(profileForDupCheck)
 				},
 				success: function(response) {
-					if (response.success) {
-						self.formData.address = address;
-						self.formData.zip = zip;
-						self.formData.matches = response.data.matches || [];
-
-						if (self.formData.matches.length > 0) {
-							self.displayMatches(self.formData.matches);
-							self.goToStep(2);
-						} else {
-							// No matches, go to new client form
-							self.goToStep(3);
-						}
+					if (response.success && response.data.matches && response.data.matches.length > 0) {
+						self.showDuplicates(response.data.matches);
 					} else {
-						self.showError('ate-address-error', response.data?.message || 'Failed to lookup address.');
+						// No duplicates — submit directly
+						self.submitNewClient();
 					}
 				},
 				error: function() {
-					self.showError('ate-address-error', 'An error occurred. Please try again.');
+					// Graceful degradation: if duplicate check fails, just submit
+					self.submitNewClient();
 				},
 				complete: function() {
-					self.$lookupBtn.prop('disabled', false);
-					$('#ate-lookup-loading').hide();
+					$('#ate-submit-btn').prop('disabled', false);
+					$('#ate-submit-loading').hide();
 				}
 			});
 		},
 
 		/**
-		 * Display address matches
+		 * Validate form fields
 		 */
-		displayMatches: function(matches) {
-			let html = '<div class="ate-match-list">';
-			
-			matches.forEach((match, index) => {
-				html += `
-					<label class="ate-match-option">
-						<input type="radio" name="client_match" value="${match.id}">
-						<span class="ate-match-name">${match.name}</span>
-					</label>
-				`;
-			});
-
-			html += '</div>';
-			this.$matchResults.html(html);
-		},
-
-		/**
-		 * Validate new client form
-		 */
-		validateNewClientForm: function() {
-			let isValid = true;
-			const fname = $('#ate-fname').val().trim();
-			const lname = $('#ate-lname').val().trim();
-			const email = $('#ate-email').val().trim();
-			const phone = $('#ate-phone').val().trim();
-			const mobilePhone = $('#ate-mobile').val().trim();
-			const altPhone = $('#ate-alt-phone').val().trim();
+		validateForm: function() {
+			var isValid = true;
 
 			// Clear previous errors
-			$('.ate-error-message').text('');
+			$('.ate-error-message').text('').hide();
 
-			if (!fname) {
-				this.showError('ate-fname-error', 'First name is required.');
-				isValid = false;
-			}
-
-			if (!lname) {
-				this.showError('ate-lname-error', 'Last name is required.');
-				isValid = false;
-			}
-
-			if (!email) {
-				this.showError('ate-email-error', 'Email is required.');
-				isValid = false;
-			} else if (!this.isValidEmail(email)) {
-				this.showError('ate-email-error', 'Please enter a valid email address.');
-				isValid = false;
-			}
-
-			// At least one phone number is recommended but not required
-			if (!phone && !mobilePhone && !altPhone) {
-				this.showWarning('Please provide at least one phone number.');
-			}
-
-			this.formData.fname = fname;
-			this.formData.lname = lname;
-			this.formData.company = $('#ate-company').val().trim();
-			this.formData.contactInfo = {
-				phone: this.formatPhoneNumber(phone) || '',
-				mobilePhone: this.formatPhoneNumber(mobilePhone) || '',
-				altPhone: this.formatPhoneNumber(altPhone) || '',
-				email: email,
-				gateCode: $('#ate-gate-code').val().trim() || ''
-			};
-
-			return isValid;
-		},
-
-		/**
-		 * Validate existing client form
-		 */
-		validateExistingClientForm: function() {
-			let isValid = true;
-			const email = $('#ate-existing-email').val().trim();
-
-			$('.ate-error-message').text('');
-
-			if (email && !this.isValidEmail(email)) {
-				this.showError('ate-existing-email-error', 'Please enter a valid email address.');
-				isValid = false;
-			}
-
-			this.formData.contactInfo = {
-				phone: this.formatPhoneNumber($('#ate-existing-phone').val()) || '',
-				mobilePhone: this.formatPhoneNumber($('#ate-existing-mobile').val()) || '',
-				altPhone: this.formatPhoneNumber($('#ate-existing-alt-phone').val()) || '',
-				email: email,
-				gateCode: $('#ate-existing-gate-code').val().trim() || ''
-			};
-
-			return isValid;
-		},
-
-		/**
-		 * Handle form submission
-		 */
-		handleFormSubmit: function() {
-			const self = this;
-			const notes = $('#ate-request-notes').val().trim();
-			const services = [];
-
+			var fname = $('#ate-fname').val().trim();
+			var lname = $('#ate-lname').val().trim();
+			var email = $('#ate-email').val().trim();
+			var phone = $('#ate-phone').val().trim();
+			var address = $('#ate-address').val().trim();
+			var zip = $('#ate-zip').val().trim();
+			var notes = $('#ate-request-notes').val().trim();
+			var services = [];
 			$('input[name="services"]:checked').each(function() {
 				services.push($(this).val());
 			});
 
-			// Validate
-			if (!notes) {
-				this.showError('ate-notes-error', 'Project details are required.');
-				return;
-			}
+			if (!fname) { this.showError('ate-fname-error', 'First name is required.'); isValid = false; }
+			if (!lname) { this.showError('ate-lname-error', 'Last name is required.'); isValid = false; }
+			if (!email) { this.showError('ate-email-error', 'Email is required.'); isValid = false; }
+			else if (!this.isValidEmail(email)) { this.showError('ate-email-error', 'Please enter a valid email address.'); isValid = false; }
+			if (!phone) { this.showError('ate-phone-error', 'Phone number is required.'); isValid = false; }
+			if (!address) { this.showError('ate-address-error', 'Street address is required.'); isValid = false; }
+			if (!zip) { this.showError('ate-zip-error', 'ZIP code is required.'); isValid = false; }
+			if (!notes) { this.showError('ate-notes-error', 'Project details are required.'); isValid = false; }
+			if (services.length === 0) { alert('Please select at least one service.'); isValid = false; }
 
-			if (services.length === 0) {
-				alert('Please select at least one service.');
-				return;
-			}
-
-			this.formData.services = services;
-			this.formData.notes = notes;
-
-			// Show loading
-			$('#ate-submit-loading').show();
-			$('#ate-submit-btn').prop('disabled', true);
-
-			const reqDet = {
-				services: services.join(', '),
-				notes: notes
-			};
-
-			const addresses = [{
-				street: this.formData.address,
-				city: '', // We'll need to extract this or ask for it
-				state: 'TX', // Default to Texas
-				zip: this.formData.zip,
-				gps: ''
-			}];
-
-			if (this.formData.selectedClient) {
-				// Existing client request
-				$.ajax({
-					url: ateQuoteForm.ajaxUrl,
-					type: 'POST',
-					data: {
-						action: 'ate_existing_client_request',
-						id: this.formData.selectedClient.id,
-						address: this.formData.selectedClient.address,
-						contactInfo: JSON.stringify(this.formData.contactInfo),
-						reqDet: JSON.stringify(reqDet)
-					},
-					success: function(response) {
-						if (response.success) {
-							self.showSuccess('Thank you for your request! We\'ll be in touch soon.');
-						} else {
-							self.showError('ate-notes-error', response.data?.message || 'Failed to submit request.');
-						}
-					},
-					error: function() {
-						self.showError('ate-notes-error', 'An error occurred. Please try again.');
-					},
-					complete: function() {
-						$('#ate-submit-loading').hide();
-						$('#ate-submit-btn').prop('disabled', false);
-					}
-				});
-			} else {
-				// New client request
-				$.ajax({
-					url: ateQuoteForm.ajaxUrl,
-					type: 'POST',
-					data: {
-						action: 'ate_new_client_request',
-						fname: this.formData.fname,
-						lname: this.formData.lname,
-						company: this.formData.company,
-						addresses: JSON.stringify(addresses),
-						contactInfo: JSON.stringify(this.formData.contactInfo),
-						reqDet: JSON.stringify(reqDet)
-					},
-					success: function(response) {
-						if (response.success) {
-							self.showSuccess('Thank you for your request! We\'ll be in touch soon.');
-						} else {
-							self.showError('ate-notes-error', response.data?.message || 'Failed to submit request.');
-						}
-					},
-					error: function() {
-						self.showError('ate-notes-error', 'An error occurred. Please try again.');
-					},
-					complete: function() {
-						$('#ate-submit-loading').hide();
-						$('#ate-submit-btn').prop('disabled', false);
-					}
-				});
-			}
+			return isValid;
 		},
 
 		/**
-		 * Go to specific step
+		 * Collect all form data into formData object
 		 */
-		goToStep: function(stepNum) {
-			$('.ate-form-step').hide();
-			$('#ate-step-' + stepNum).show();
-			this.currentStep = stepNum;
+		collectFormData: function() {
+			var phone = this.digitsOnly($('#ate-phone').val());
+			var mobilePhone = this.digitsOnly($('#ate-mobile').val());
+			var altPhone = this.digitsOnly($('#ate-alt-phone').val());
+			var services = [];
+			$('input[name="services"]:checked').each(function() {
+				services.push($(this).val());
+			});
 
-			// Scroll to top of form
-			$('html, body').animate({
-				scrollTop: this.$wrapper.offset().top - 100
-			}, 300);
+			this.formData = {
+				fname: $('#ate-fname').val().trim(),
+				lname: $('#ate-lname').val().trim(),
+				company: $('#ate-company').val().trim(),
+				address: $('#ate-address').val().trim(),
+				zip: $('#ate-zip').val().trim(),
+				contactInfo: {
+					phone: phone,
+					mobilePhone: mobilePhone,
+					altPhone: altPhone,
+					email: $('#ate-email').val().trim(),
+					gateCode: $('#ate-gate-code').val().trim()
+				},
+				reqDet: {
+					services: services.join(', '),
+					notes: $('#ate-request-notes').val().trim()
+				},
+				addresses: [{
+					street: $('#ate-address').val().trim(),
+					city: '',
+					state: 'TX',
+					zip: $('#ate-zip').val().trim(),
+					gps: ''
+				}]
+			};
+		},
+
+		/**
+		 * Show duplicate matches interstitial
+		 */
+		showDuplicates: function(matches) {
+			var html = '';
+			for (var i = 0; i < matches.length; i++) {
+				var m = matches[i];
+				var addrHtml = '';
+				if (m.addresses && m.addresses.length) {
+					for (var j = 0; j < m.addresses.length; j++) {
+						var a = m.addresses[j];
+						addrHtml += '<div class="ate-dup-address">' + this.escapeHtml(a.address) + ', ' + this.escapeHtml(a.city) + ' ' + this.escapeHtml(a.state) + ' ' + this.escapeHtml(a.zip) + '</div>';
+					}
+				}
+
+				var firstAddressId = (m.addresses && m.addresses.length) ? m.addresses[0].addressId : 0;
+
+				html += '<div class="ate-dup-card">' +
+					'<div class="ate-dup-card-header">' +
+						'<strong>' + this.escapeHtml(m.firstName) + ' ' + this.escapeHtml(m.lastName) + '</strong>' +
+					'</div>' +
+					'<div class="ate-dup-card-body">' +
+						(m.phone ? '<div>' + this.escapeHtml(m.phone) + '</div>' : '') +
+						(m.email ? '<div>' + this.escapeHtml(m.email) + '</div>' : '') +
+						addrHtml +
+						'<div class="ate-dup-reasons">' + this.escapeHtml(m.reasons.join(', ')) + '</div>' +
+						'<button type="button" class="ate-btn ate-btn-primary ate-dup-select-btn" data-user-id="' + m.userId + '" data-address-id="' + firstAddressId + '">' +
+							"That's Me" +
+						'</button>' +
+					'</div>' +
+				'</div>';
+			}
+
+			$('#ate-dup-matches').html(html);
+			this.showStep('duplicates');
+		},
+
+		/**
+		 * Submit as new client
+		 */
+		submitNewClient: function() {
+			var self = this;
+
+			$.ajax({
+				url: ateQuoteForm.ajaxUrl,
+				type: 'POST',
+				data: {
+					action: 'ate_new_client_request',
+					nonce: ateQuoteForm.nonce,
+					fname: this.formData.fname,
+					lname: this.formData.lname,
+					company: this.formData.company,
+					addresses: JSON.stringify(this.formData.addresses),
+					contactInfo: JSON.stringify(this.formData.contactInfo),
+					reqDet: JSON.stringify(this.formData.reqDet)
+				},
+				success: function(response) {
+					if (response.success) {
+						self.showSuccess('Your request has been submitted! We\'ll review your information and get back to you with a quote.');
+					} else {
+						self.showError('ate-notes-error', response.data && response.data.message ? response.data.message : 'Failed to submit request.');
+						self.showStep('form');
+					}
+				},
+				error: function() {
+					self.showError('ate-notes-error', 'An error occurred. Please try again.');
+					self.showStep('form');
+				},
+				complete: function() {
+					$('#ate-submit-btn').prop('disabled', false);
+					$('#ate-submit-loading').hide();
+					$('#ate-dup-new-customer').prop('disabled', false);
+					$('#ate-dup-submit-loading').hide();
+				}
+			});
+		},
+
+		/**
+		 * Submit as existing client
+		 */
+		submitExistingClient: function(userId, addressId) {
+			var self = this;
+
+			$.ajax({
+				url: ateQuoteForm.ajaxUrl,
+				type: 'POST',
+				data: {
+					action: 'ate_existing_client_request',
+					nonce: ateQuoteForm.nonce,
+					id: userId,
+					address: addressId,
+					contactInfo: JSON.stringify(this.formData.contactInfo),
+					reqDet: JSON.stringify(this.formData.reqDet)
+				},
+				success: function(response) {
+					if (response.success) {
+						self.showSuccess('Welcome back! Your request has been submitted. We\'ll be in touch soon.');
+					} else {
+						self.showError('ate-notes-error', response.data && response.data.message ? response.data.message : 'Failed to submit request.');
+						self.showStep('form');
+					}
+				},
+				error: function() {
+					self.showError('ate-notes-error', 'An error occurred. Please try again.');
+					self.showStep('form');
+				},
+				complete: function() {
+					$('#ate-dup-submit-loading').hide();
+					$('.ate-dup-select-btn').prop('disabled', false).text("That's Me");
+				}
+			});
+		},
+
+		/**
+		 * Show a form step
+		 */
+		showStep: function(step) {
+			$('.ate-form-step').hide();
+			$('#ate-step-' + step).show();
+			$('html, body').animate({ scrollTop: $('#ate-quote-form-wrapper').offset().top - 100 }, 300);
 		},
 
 		/**
@@ -394,54 +301,29 @@
 			$('#ate-success-text').text(message);
 			$('.ate-form-step').hide();
 			$('#ate-success-step').show();
-
-			$('html, body').animate({
-				scrollTop: this.$wrapper.offset().top - 100
-			}, 300);
+			$('html, body').animate({ scrollTop: $('#ate-quote-form-wrapper').offset().top - 100 }, 300);
 		},
 
-		/**
-		 * Show error message
-		 */
 		showError: function(elementId, message) {
 			$('#' + elementId).text(message).show();
 		},
 
-		/**
-		 * Show warning message
-		 */
-		showWarning: function(message) {
-			alert(message);
-		},
-
-		/**
-		 * Validate email
-		 */
 		isValidEmail: function(email) {
-			const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-			return re.test(email);
+			return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 		},
 
-		/**
-		 * Format phone number
-		 */
-		formatPhoneNumber: function(phone) {
-			if (!phone) return '';
-			
-			// Remove all non-digits
-			const cleaned = phone.replace(/\D/g, '');
-			
-			// Format as (XXX) XXX-XXXX if it's 10 digits
-			if (cleaned.length === 10) {
-				return cleaned.substring(0, 3) + cleaned.substring(3, 6) + cleaned.substring(6, 10);
-			}
-			
-			// Return as-is if not 10 digits
-			return cleaned;
+		digitsOnly: function(val) {
+			return (val || '').replace(/\D/g, '');
+		},
+
+		escapeHtml: function(str) {
+			if (!str) return '';
+			var div = document.createElement('div');
+			div.appendChild(document.createTextNode(str));
+			return div.innerHTML;
 		}
 	};
 
-	// Initialize when DOM is ready
 	$(document).ready(function() {
 		ATE.init();
 	});

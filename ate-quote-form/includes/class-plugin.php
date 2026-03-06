@@ -21,11 +21,7 @@ class ATE_Quote_Form_Plugin {
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_scripts' ) );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_styles' ) );
 
-		// Register AJAX handlers
-		add_action( 'wp_ajax_nopriv_ate_address_lookup', 'ate_handle_address_lookup' );
-		add_action( 'wp_ajax_nopriv_ate_new_client_request', 'ate_handle_new_client_request' );
-		add_action( 'wp_ajax_nopriv_ate_existing_client_request', 'ate_handle_existing_client_request' );
-		add_action( 'wp_ajax_nopriv_ate_email_token', 'ate_handle_email_token' );
+		// AJAX handlers are registered via add_action in admin/settings.php
 	}
 
 	/**
@@ -71,14 +67,13 @@ class ATE_Quote_Form_Plugin {
 			true
 		);
 
-		// Pass AJAX URL and settings to JavaScript
+		// Pass AJAX URL and nonce to JavaScript
 		wp_localize_script(
 			'ate-quote-form-script',
 			'ateQuoteForm',
 			array(
 				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-				'apiEndpoint' => get_option( 'ate_quote_form_api_endpoint', 'https://app.digitalarborist.com/reqFormAPI.cfc' ),
-				'apiKey' => get_option( 'ate_quote_form_api_key', '' ),
+				'nonce'   => wp_create_nonce( 'ate_quote_form_nonce' ),
 			)
 		);
 	}

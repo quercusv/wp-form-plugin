@@ -1,7 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(gh auth:*)",
+      "Bash(brew install:*)",
+      "Bash(curl -fsSL https://github.com/cli/cli/releases/latest/download/gh_2.67.0_macOS_arm64.zip -o /tmp/gh.zip)",
+      "Bash(unzip -o /tmp/gh.zip -d /tmp/gh)",
+      "Read(//tmp/**)",
+      "Bash(curl:*)",
+      "Bash(mkdir:*)",
+      "Bash(export:*)"
     ]
   }
 }
