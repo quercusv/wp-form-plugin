@@ -45,7 +45,7 @@ scp -r /path/to/ate-quote-form user@your-server:/path/to/wordpress/wp-content/pl
 
 1. Go to **Quote Form** (left sidebar in admin)
 2. Enter your API settings:
-   - **API Endpoint**: `https://app.digitalarborist.com/reqFormAPI.cfc`
+   - **API Endpoint**: `https://app.digitalarborist.com/remoteAPI.cfc`
    - **API Key**: `h^qy8a81@3qCi5A8q7FPEpZrTmC9bXfc`
 3. Click **Save Settings**
 

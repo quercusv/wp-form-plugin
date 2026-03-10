@@ -1,17 +1,17 @@
 # Austin Tree Experts Quote Form Plugin
 
-A multi-step quote request form that integrates with your ColdFusion API to manage client requests and database entries.
+A WordPress plugin that provides a smart quote request form with **score-based duplicate detection**, integrating with the DigitalArborist CRM via ColdFusion API.
 
 ## Features
 
-- **Address Lookup**: Validates addresses against your existing client database
-- **Existing Client Recognition**: Displays matching contact names for recognized addresses
-- **New Client Onboarding**: Collects full contact information for new clients
-- **Service Selection**: Multi-select form for various tree services
-- **Project Details**: Free-form text area for detailed project descriptions
-- **Database Integration**: Writes directly to your MS SQL database via ColdFusion API
-- **Responsive Design**: Works on desktop, tablet, and mobile devices
-- **Email Notifications**: Triggers emails via your existing ColdFusion system
+- **Duplicate Detection**: Score-based matching against existing clients (phone, email, name, address, SOUNDEX)
+- **Duplicate Interstitial**: Shows matching profiles with match reasons; user can claim existing profile or proceed as new
+- **New Client Onboarding**: Collects full contact information and creates user + address + web request records
+- **Existing Client Requests**: Creates web request linked to existing profile
+- **Service Selection**: Multi-select checkboxes for tree services
+- **Responsive Design**: Single-page form works on desktop, tablet, and mobile
+- **Email Notifications**: Triggers confirmation and staff notification emails
+- **Nonce Verification**: All AJAX handlers use WordPress nonce for CSRF protection
 
 ## Installation
 
@@ -25,13 +25,9 @@ A multi-step quote request form that integrates with your ColdFusion API to mana
 
 Go to **Admin Dashboard → Quote Form** to configure:
 
-- **API Endpoint**: The full URL to your `reqFormAPI.cfc` 
-  - Default: `https://app.digitalarborist.com/reqFormAPI.cfc`
-  - Update if your ColdFusion endpoint URL changes
-
-- **API Key**: Your widget key for authentication
-  - Default: `h^qy8a81@3qCi5A8q7FPEpZrTmC9bXfc`
-  - This key is required for all API calls
+- **API Endpoint**: The URL to your ColdFusion `remoteAPI.cfc`
+  - Default: `https://app.digitalarborist.com/remoteAPI.cfc`
+- **Widget Key**: Your firm's widget key for authentication (stored in `firms.f_widget_key`)
 
 ### Using the Form
 
@@ -51,66 +47,72 @@ Or use it in a theme template file:
 
 ### Form Flow
 
-1. **Step 1: Address Lookup**
-   - User enters street address and ZIP code
-   - Form validates against existing addresses in your database
+1. **Single-Page Form**
+   - User fills out: name, company, email, phone(s), address, ZIP, gate code, services, project details
+   - Client-side validation runs on submit
 
-2. **Step 2: Match Results** (if address found)
-   - Shows all contact names associated with the address
-   - User selects their name or chooses "None of these"
+2. **Duplicate Check**
+   - Form data is sent to `checkForDuplicates` via `remoteAPI.cfc`
+   - Backend runs 6 scoring queries (phone +40, email +40, address +35, last name+ZIP +30, SOUNDEX +20, first name bonus +15)
+   - Matches with score >= 40 are returned
 
-3. **Step 3: Contact Information** (if no match)
-   - Collects first name, last name, company, phone numbers, email
-   - Gate code field for security access
+3. **Duplicate Interstitial** (if matches found)
+   - Yellow-highlighted cards show each match with name, phone, email, addresses, and match reasons
+   - User chooses:
+     - **"That's Me"** → submits as existing client (`existingClientRequest`)
+     - **"I'm a New Customer"** → overrides and creates new profile (`newClientRequest`)
+     - **"Back to Form"** → return to edit
 
-4. **Step 4: Contact Confirmation** (if existing client)
-   - Allows user to update/confirm contact information
-   - Validates email address
+4. **No Matches** → proceeds directly to new client creation
 
-5. **Step 5: Service Details**
-   - Multi-select checkboxes for services offered:
-     - Pruning, Removal, Stump Removal, Planting
-     - Root Services, Treatment, Consulting
-     - Oak Wilt, Construction Site
-   - Text area for detailed project description
+5. **Success Page** — confirmation with phone number for follow-up
 
 ### API Calls
 
-The plugin makes the following API calls to your ColdFusion endpoint:
+All calls go through WordPress AJAX (`admin-ajax.php`) which proxies to the ColdFusion backend at `remoteAPI.cfc`.
 
-#### addressLookup
+#### checkForDuplicates
 ```
-GET /reqFormAPI.cfc?method=addressLookup&address=&zip=&key=&returnformat=json
+POST remoteAPI.cfc?method=checkForDuplicates&returnformat=json
+Body: profile (JSON string), widgetKey
 ```
-Returns existing addresses and associated contact names.
+Returns scored matches with reasons (e.g., "Phone number match", "Email match").
 
 #### newClientRequest
 ```
-POST /reqFormAPI.cfc?method=newClientRequest&key=&returnformat=json
+POST remoteAPI.cfc?method=newClientRequest&returnformat=json
+Body: fname, lname, company, addresses (JSON), contactInfo (JSON), reqDet (JSON), widgetKey
 ```
-Creates a new user, address, and web request record.
-
-**Parameters:**
-- `fname` - First name
-- `lname` - Last name
-- `company` - Company name
-- `addresses` - JSON array of address objects
-- `contactInfo` - JSON object with contact details
-- `reqDet` - JSON object with request details (services, notes)
+Creates new user, address, and web request records. Sends confirmation + notification emails.
 
 #### existingClientRequest
 ```
-POST /reqFormAPI.cfc?method=existingClientRequest&key=&returnformat=json
+POST remoteAPI.cfc?method=existingClientRequest&returnformat=json
+Body: id (user ID), address (address ID), contactInfo (JSON), reqDet (JSON), widgetKey
 ```
-Creates a web request for an existing client.
+Creates web request for an existing client.
 
-**Parameters:**
-- `id` - User ID
-- `address` - Address ID
-- `contactInfo` - JSON object with contact details
-- `reqDet` - JSON object with request details
+#### emailToken
+```
+POST remoteAPI.cfc?method=emailToken&returnformat=json
+Body: id (user ID), email, widgetKey
+```
+Sends account access token email to client.
 
-## Data Structure
+## Data Structures
+
+### Profile Object (sent to checkForDuplicates)
+```json
+{
+  "fName": "John",
+  "lName": "Smith",
+  "email": "john@example.com",
+  "phone": "5551234567",
+  "addresses": [
+    { "street": "123 Main St", "zip": "78704", "city": "Austin" }
+  ]
+}
+```
 
 ### Contact Info Object
 ```json
@@ -120,17 +122,6 @@ Creates a web request for an existing client.
   "altPhone": "(555) 123-4567",
   "email": "user@example.com",
   "gateCode": "1234"
-}
-```
-
-### Address Object
-```json
-{
-  "street": "123 Main St",
-  "city": "Austin",
-  "state": "TX",
-  "zip": "78704",
-  "gps": ""
 }
 ```
 
@@ -146,53 +137,37 @@ Creates a web request for an existing client.
 
 ### Styling
 
-All styles are in `/assets/css/quote-form.css`. The form uses CSS variables for theming:
-
-- Primary color: `#2c5530` (dark green)
-- Secondary color: `#f5f5f5` (light gray)
-
-You can override styles in your theme's CSS.
+All styles are in `/assets/css/quote-form.css`. Key colors:
+- Primary: `#2c5530` (dark green)
+- Secondary: `#f5f5f5` (light gray)
+- Duplicate cards: `#e0c97f` (warm gold)
 
 ### Services List
 
-To modify available services, edit the checkboxes in `/includes/shortcode.php` around line 280.
+To modify available services, edit the checkboxes in `/includes/shortcode.php`.
 
 ### Form Fields
 
 To add or remove fields, modify:
-- `/includes/shortcode.php` - HTML markup
-- `/assets/js/quote-form.js` - JavaScript validation and data handling
+- `/includes/shortcode.php` — HTML markup
+- `/assets/js/quote-form.js` — validation and data handling
 
 ## Troubleshooting
 
 ### Form Submissions Not Working
 
-1. Check that API Endpoint and API Key are configured correctly in settings
+1. Check that API Endpoint and Widget Key are configured correctly in settings
 2. Verify your ColdFusion server is accessible from your WordPress server
 3. Check browser console (F12) for AJAX errors
 4. Review WordPress error logs at `/wp-content/debug.log`
 
-### Address Lookup Failing
+### Duplicate Check Not Finding Matches
 
-1. Verify ZIP code format (5 digits)
-2. Check that addresses exist in your database
-3. Ensure `ad_active_flag = 1` in your address_details table
-
-### Missing Phone Numbers
-
-Phone numbers are optional but recommended. The form will format 10-digit numbers automatically.
-
-## Security Considerations
-
-- All form data is validated server-side before sending to ColdFusion
-- The API key should be kept secure in WordPress settings
-- Consider using HTTPS for form submissions
-- CORS headers should be configured if API is on different domain
-
-## Support
-
-For issues or feature requests, contact your development team.
+1. Ensure `checkForDuplicates` method exists in `ProfileAPI.cfc` and is routed via `remoteAPI.cfc`
+2. Check that the widget key matches a `f_widget_key` value in the `firms` table
+3. Scoring threshold is 40 — a single phone or email match will qualify
 
 ## Version History
 
-- **1.0.0** - Initial release
+- **2.0.0** — Rewrite: single-page form with score-based duplicate detection via `remoteAPI.cfc`, nonce verification, XSS protection
+- **1.0.0** — Initial release: multi-step address-lookup flow via `reqFormAPI.cfc`
