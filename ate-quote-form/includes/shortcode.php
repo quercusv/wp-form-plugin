@@ -41,8 +41,8 @@ function ate_render_quote_form() {
 						<span class="ate-error-message" id="ate-email-error"></span>
 					</div>
 					<div class="ate-form-group">
-						<label for="ate-phone">Phone *</label>
-						<input type="tel" id="ate-phone" name="phone" placeholder="(555) 555-5555" required>
+						<label for="ate-phone">Phone</label>
+						<input type="tel" id="ate-phone" name="phone" placeholder="(555) 555-5555">
 						<span class="ate-error-message" id="ate-phone-error"></span>
 					</div>
 				</div>

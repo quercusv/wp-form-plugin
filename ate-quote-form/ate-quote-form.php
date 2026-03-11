@@ -3,7 +3,7 @@
  * Plugin Name: Austin Tree Experts Quote Form
  * Plugin URI: https://austintreeexperts.com
  * Description: Multi-step quote request form that integrates with ColdFusion API
- * Version: 1.0.0
+ * Version: 2.0.1
  * Author: Austin Tree Experts
  * Author URI: https://austintreeexperts.com
  * Text Domain: ate-quote-form
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Define plugin constants
-define( 'ATE_QUOTE_FORM_VERSION', '1.0.0' );
+define( 'ATE_QUOTE_FORM_VERSION', '2.0.1' );
 define( 'ATE_QUOTE_FORM_PATH', plugin_dir_path( __FILE__ ) );
 define( 'ATE_QUOTE_FORM_URL', plugin_dir_url( __FILE__ ) );
 

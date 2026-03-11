@@ -124,8 +124,7 @@
 			if (!lname) { this.showError('ate-lname-error', 'Last name is required.'); isValid = false; }
 			if (!email) { this.showError('ate-email-error', 'Email is required.'); isValid = false; }
 			else if (!this.isValidEmail(email)) { this.showError('ate-email-error', 'Please enter a valid email address.'); isValid = false; }
-			if (!phone) { this.showError('ate-phone-error', 'Phone number is required.'); isValid = false; }
-			if (!address) { this.showError('ate-address-error', 'Street address is required.'); isValid = false; }
+		if (!address) { this.showError('ate-address-error', 'Street address is required.'); isValid = false; }
 			if (!zip) { this.showError('ate-zip-error', 'ZIP code is required.'); isValid = false; }
 			if (!notes) { this.showError('ate-notes-error', 'Project details are required.'); isValid = false; }
 			if (services.length === 0) { alert('Please select at least one service.'); isValid = false; }
